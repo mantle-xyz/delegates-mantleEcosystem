@@ -1,0 +1,195 @@
+name: Validate Delegates
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "delegates.json"
+      - ".github/delegates-limits.json"
+      - ".github/scripts/validate_delegates.py"
+      - ".github/workflows/validate-delegates.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "delegates.json"
+      - ".github/delegates-limits.json"
+      - ".github/scripts/validate_delegates.py"
+      - ".github/workflows/validate-delegates.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate delegates.json
+        id: validate
+        run: python3 .github/scripts/validate_delegates.py
+
+      - name: Comment on PR (if applicable)
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          VALIDATION_RESULT: ${{ steps.validate.outputs.validation_result }}
+          VALIDATION_MESSAGE: ${{ steps.validate.outputs.validation_message }}
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+
+            const validationResult = process.env.VALIDATION_RESULT;
+            const validationMessage = process.env.VALIDATION_MESSAGE || '';
+            const validationSuccess = process.env.VALIDATION_OUTCOME === 'success';
+
+            try {
+              if (validationSuccess && validationResult === 'passed') {
+                const delegates = JSON.parse(fs.readFileSync('delegates.json', 'utf8'));
+                github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: `✅ **Validation Passed**\n\n📊 Validated ${delegates.length} delegates\n\nAll address formats and required fields meet the requirements.`
+                });
+              } else {
+                const errors = validationMessage
+                  ? validationMessage.split('\n').map(e => e.trim()).filter(Boolean)
+                  : ['Validation failed'];
+                github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: `❌ **Validation Failed**\n\nError details:\n${errors.map(e => `- ${e}`).join('\n')}\n\nPlease fix the above errors and resubmit.`
+                });
+              }
+            } catch (error) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `❌ **Validation Error**\n\n\`\`\`\n${error.message}\n\`\`\``
+              });
+            }
+
+      - name: Send Lark notification
+        if: always()
+        env:
+          WEBHOOK_URL: ${{ secrets.LARK_WEBHOOK }}
+          SECRET: ${{ secrets.LARK_SECRET }}
+          VALIDATION_RESULT: ${{ steps.validate.outputs.validation_result }}
+          VALIDATION_MESSAGE: ${{ steps.validate.outputs.validation_message }}
+          VALIDATION_OUTCOME: ${{ steps.validate.outcome }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          EVENT_TYPE: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          echo "🔔 Preparing Lark notification..."
+
+          # Generate timestamp and signature
+          export TS=$(date +%s)
+          SIGN=$(python3 - <<'PY'
+          import os, base64, hmac, hashlib
+          ts = os.environ["TS"]
+          sec = os.environ["SECRET"]
+          # Lark signature: HMAC-SHA256(timestamp + "\n" + secret, "")
+          string_to_sign = '{}\n{}'.format(ts, sec)
+          hmac_code = hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
+          sign = base64.b64encode(hmac_code).decode('utf-8')
+          print(sign)
+          PY
+          )
+          echo "✅ Signature generated"
+
+          # Determine notification content based on validation result
+          if [ "$VALIDATION_OUTCOME" == "success" ] && [ "$VALIDATION_RESULT" == "passed" ]; then
+            echo "📢 Sending success notification..."
+            TEMPLATE="green"
+            DELEGATE_COUNT=$(python3 -c "import json; print(len(json.load(open('delegates.json'))))" 2>/dev/null || echo "N/A")
+
+            if [ "$EVENT_TYPE" == "pull_request" ]; then
+              TITLE="🟢 Ready for Review"
+              CONTENT="📊 验证数量：${DELEGATE_COUNT} 个 delegates
+          🏠 仓库：${REPO}
+          🔢 PR：#${PR_NUMBER}
+          🌿 分支：${BRANCH}
+          👤 作者：${PR_AUTHOR}
+          📝 标题：${PR_TITLE}"
+            else
+              TITLE="✅ Merged to Main"
+              CONTENT="🏠 仓库：${REPO}
+          🌿 分支：${BRANCH}
+          👤 操作者：${PR_AUTHOR}
+          📝 事件：${EVENT_TYPE}"
+            fi
+          else
+            echo "📢 Sending failure notification..."
+            TEMPLATE="red"
+            TITLE="❌ Delegates 验证失败"
+            ERROR_BODY="${VALIDATION_MESSAGE:-Validation failed}"
+
+            if [ "$EVENT_TYPE" == "pull_request" ]; then
+              CONTENT="🏠 仓库：${REPO}
+          🔢 PR：#${PR_NUMBER}
+          🌿 分支：${BRANCH}
+          👤 作者：${PR_AUTHOR}
+          📝 标题：${PR_TITLE}
+          🔍 错误详情：
+          ${ERROR_BODY}"
+            else
+              CONTENT="🏠 仓库：${REPO}
+          👤 操作者：${PR_AUTHOR}
+          🌿 分支：${BRANCH}
+          📝 事件：${EVENT_TYPE}
+          🔍 错误详情：
+          ${ERROR_BODY}"
+            fi
+          fi
+
+          # Build card JSON safely with jq (handles quotes/newlines/special chars in any variable)
+          CARD=$(jq -n \
+            --arg title "$TITLE" \
+            --arg template "$TEMPLATE" \
+            --arg content "$CONTENT" \
+            '{
+              config: {wide_screen_mode: true},
+              elements: [{tag: "markdown", content: $content}],
+              header: {template: $template, title: {content: $title, tag: "plain_text"}}
+            }')
+
+          if [ "$EVENT_TYPE" == "pull_request" ] && [ -n "$PR_URL" ]; then
+            CARD=$(echo "$CARD" | jq \
+              --arg pr_url "$PR_URL" \
+              '.elements += [{
+                tag: "action",
+                actions: [{
+                  tag: "button",
+                  text: {tag: "plain_text", content: "🔗 查看 Pull Request"},
+                  type: "primary",
+                  multi_url: {url: $pr_url, pc_url: "", android_url: "", ios_url: ""}
+                }]
+              }]')
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg ts "$TS" \
+            --arg sign "$SIGN" \
+            --argjson card "$CARD" \
+            '{timestamp: $ts, sign: $sign, msg_type: "interactive", card: $card}')
+
+          echo "📤 Sending message to Lark..."
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            --fail-with-body || echo "⚠️ Failed to send Lark notification"
+
+          echo "✅ Lark notification sent!"
