@@ -1,0 +1,27 @@
+[
+    {
+        "Voteweight": 15000000,
+        "Address": "0x29a99F7Fe080F72223dAd48D5E1E86670a984326",
+        "InternalReference": "Ecosystem, Ethena"
+    },
+    {
+        "Voteweight": 15000000,
+        "Address": "0x9E2d6306FCB916b52C90D7d4A8Dd13b088C517f4",
+        "InternalReference": "Ecosystem, Agni Finance"
+    },
+    {
+        "Voteweight": 10000000,
+        "Address": "0xA1d7f2D5a89772DE29824250F96dF64558fcfc36",
+        "InternalReference": "Ecosystem, Init Capital"
+    },
+    {
+        "Voteweight": 15000000,
+        "Address": "0xDc026E9F31239c30eE58c29aB98b36259E33832E",
+        "InternalReference": "Ecosystem, Merchant Moe"
+    },
+    {
+        "Voteweight": 5000000,
+        "Address": "0x955bD4e835f10D1B27799934aEc7d982974fFD76",
+        "InternalReference": "Ecosystem, Nouns"
+    }
+]
