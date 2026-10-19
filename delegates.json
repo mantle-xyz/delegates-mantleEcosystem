@@ -1,7 +1,7 @@
 [
     {
         "Voteweight": 15000000,
-        "Address": "0x29a99F7Fe080F72223dAd48D5E1E86670a984326",
+        "Address": "0x799a2Cd46CBc7FB53949072257e6331054A060Bb",
         "InternalReference": "Ecosystem, Ethena"
     },
     {
@@ -11,7 +11,7 @@
     },
     {
         "Voteweight": 10000000,
-        "Address": "0xA1d7f2D5a89772DE29824250F96dF64558fcfc36",
+        "Address": "0x63c7E1De6b8b1fDC6488D59cb467f7F259E60961",
         "InternalReference": "Ecosystem, Init Capital"
     },
     {
